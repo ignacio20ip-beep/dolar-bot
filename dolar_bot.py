@@ -2,6 +2,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # ========= CONFIG =========
 BOT_TOKEN = os.environ["BOT_TOKEN"]
@@ -55,7 +56,7 @@ def send_telegram(msg: str):
 
 def main():
     compra, venta = fetch_usd_rates()
-    ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
+    hora = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%d/%m/%Y %H:%M")
 
     mensaje = (
         "💵 El Dorado – Dólar EE.UU\n"
@@ -69,4 +70,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
