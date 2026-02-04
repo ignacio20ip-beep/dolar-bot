@@ -1,4 +1,7 @@
 import os
+import requests
+from bs4 import BeautifulSoup
+from datetime import datetime
 
 # ========= CONFIG =========
 BOT_TOKEN = os.environ["BOT_TOKEN"]
@@ -66,3 +69,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
