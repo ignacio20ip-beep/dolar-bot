@@ -2,7 +2,7 @@ name: Dolar Bot
 
 on:
   schedule:
-    - cron: '0 14 * * *'   # 14:00 UTC = 11:00 Argentina
+    - cron: '06 02 * * *'   # 14:00 UTC = 11:00 Argentina
   workflow_dispatch:
 
 jobs:
