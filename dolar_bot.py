@@ -1,7 +1,7 @@
 import os
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 # ========= CONFIG =========
@@ -56,7 +56,9 @@ def send_telegram(msg: str):
 
 def main():
     compra, venta = fetch_usd_rates()
-    hora = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%d/%m/%Y %H:%M")
+    tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
+    ahora = datetime.now(timezone.utc).astimezone(tz_ar).strftime("%d/%m/%Y %H:%M")
+
 
     mensaje = (
         "💵 El Dorado – Dólar EE.UU\n"
@@ -70,5 +72,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
