@@ -2,12 +2,17 @@ name: Dolar Bot
 
 on:
   schedule:
-   - cron: '00 13 * * *'   # 13:00 UTC = 10:00 Argentina
+    - cron: '00 13 * * *'   # 13:00 UTC = 10:00 Argentina
   workflow_dispatch:
+
+concurrency:
+  group: dolar-bot
+  cancel-in-progress: true
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - name: Checkout repo
@@ -27,5 +32,7 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          # Optional: where error alerts go. If you don't set it, it uses CHAT_ID.
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
         run: |
           python dolar_bot.py
