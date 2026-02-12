@@ -1,167 +1,141 @@
 import os
+import json
 import time
-import traceback
+from pathlib import Path
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
 
-# ========= CONFIG =========
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
-# Optional: where to send error alerts. Defaults to CHAT_ID.
-ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", CHAT_ID)
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", CHAT_ID)
 
-# Base URL(s). We'll add a cache-buster query param dynamically.
-COTIZACIONES_BASE_URLS = [
-    "https://eldoradosa.com/cotizaciones/CotizacionesWeb.htm",
-    "https://eldoradosa.com/CotizacionesWeb.htm",  # fallback (just in case)
-]
-# ==========================
+COTIZACIONES_BASE_URL = "https://eldoradosa.com/cotizaciones/CotizacionesWeb.htm"
+
+STATE_DIR = Path(".bot_state")
+STATE_FILE = STATE_DIR / "last_value.json"
 
 
-def log(msg: str) -> None:
-    # GitHub Actions-friendly logs (single line)
-    print(f"[dolar-bot] {msg}", flush=True)
+def parse_price_to_float(s: str) -> float:
+    s = s.strip().replace("$", "").replace(" ", "")
+    s = s.replace(".", "").replace(",", ".")
+    return float(s)
 
 
-def norm(s: str) -> str:
-    """Normalize text: lowercase, trim, collapse whitespace."""
-    return " ".join(s.strip().lower().split())
+def build_url() -> str:
+    return f"{COTIZACIONES_BASE_URL}?_={int(time.time() * 1000)}"
 
 
-def request_with_retries(
-    session: requests.Session,
-    method: str,
-    url: str,
-    *,
-    json=None,
-    headers=None,
-    timeout: int = 20,
-    retries: int = 3,
-    backoff: float = 1.8,
-):
-    """Simple retry wrapper with exponential backoff."""
-    last_exc = None
-    for attempt in range(1, retries + 1):
+def http_get_with_retries(url: str, timeout: int = 20, tries: int = 3) -> requests.Response:
+    headers = {"User-Agent": "Mozilla/5.0"}
+    last = None
+    for i in range(tries):
         try:
-            resp = session.request(method, url, json=json, headers=headers, timeout=timeout)
-            resp.raise_for_status()
-            return resp
-        except Exception as exc:  # noqa: BLE001
-            last_exc = exc
-            if attempt < retries:
-                sleep_s = (backoff ** (attempt - 1))
-                log(f"{method} {url} failed (attempt {attempt}/{retries}): {exc}. Retrying in {sleep_s:.1f}s")
-                time.sleep(sleep_s)
-            else:
-                log(f"{method} {url} failed (attempt {attempt}/{retries}): {exc}. No more retries.")
-    raise last_exc  # type: ignore[misc]
+            r = requests.get(url, headers=headers, timeout=timeout)
+            r.raise_for_status()
+            return r
+        except Exception as e:
+            last = e
+            time.sleep([1, 3, 7][min(i, 2)])
+    raise last
 
 
-def build_url(base: str) -> str:
-    # cache-buster: milliseconds
-    ts = int(time.time() * 1000)
-    sep = "&" if "?" in base else "?"
-    return f"{base}{sep}_={ts}"
+def fetch_usd_rates():
+    r = http_get_with_retries(build_url())
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    for row in soup.find_all("tr"):
+        cols = row.find_all("td")
+        if len(cols) < 4:
+            continue
+
+        moneda = " ".join(cols[1].get_text(" ", strip=True).lower().split())
+        if ("dolar" in moneda) and ("eeuu" in moneda or "ee.uu" in moneda or "usd" in moneda):
+            compra = cols[2].get_text(strip=True)
+            venta = cols[3].get_text(strip=True)
+            return compra, venta
+
+    raise ValueError("No encontré la fila del dólar (cambió el HTML o el texto).")
 
 
-def fetch_usd_rates(session: requests.Session):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "es-AR,es;q=0.9,en;q=0.8",
-        "Connection": "close",
-    }
-
-    last_error = None
-    for base in COTIZACIONES_BASE_URLS:
-        url = build_url(base)
-        try:
-            log(f"Fetching rates from {base}")
-            r = request_with_retries(session, "GET", url, headers=headers, timeout=20, retries=3)
-            soup = BeautifulSoup(r.text, "html.parser")
-
-            for row in soup.find_all("tr"):
-                cols = row.find_all("td")
-                if len(cols) < 4:
-                    continue
-
-                moneda = norm(cols[1].get_text(" ", strip=True))  # 2nd column = currency name
-                if ("dolar" in moneda) and ("eeuu" in moneda or "ee.uu" in moneda or "usd" in moneda):
-                    compra = cols[2].get_text(strip=True)
-                    venta = cols[3].get_text(strip=True)
-
-                    # Basic sanity check (avoid sending garbage)
-                    if not compra or not venta:
-                        raise ValueError("Compra/venta vacías en la fila del dólar.")
-                    log(f"Parsed USD rates OK: compra={compra} venta={venta}")
-                    return compra, venta
-
-            # If not found, collect currencies for debug
-            monedas = []
-            for row in soup.find_all("tr"):
-                cols = row.find_all("td")
-                if len(cols) >= 2:
-                    monedas.append(norm(cols[1].get_text(' ', strip=True)))
-
-            raise ValueError(f"No encontré la fila del dólar. Monedas vistas: {monedas}")
-
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            log(f"Failed with base {base}: {exc}")
-
-    raise RuntimeError(f"No pude obtener cotización desde ningún endpoint. Último error: {last_error}")
-
-
-def send_telegram(session: requests.Session, chat_id: str, msg: str):
+def send_telegram(chat_id: str, msg: str):
     api = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": msg, "disable_web_page_preview": True}
-    request_with_retries(session, "POST", api, json=payload, timeout=20, retries=3)
+
+    last = None
+    for i in range(3):
+        try:
+            resp = requests.post(api, json=payload, timeout=20)
+            resp.raise_for_status()
+            return
+        except Exception as e:
+            last = e
+            time.sleep([1, 3, 7][min(i, 2)])
+    raise last
+
+
+def load_last():
+    if not STATE_FILE.exists():
+        return None
+    return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+
+
+def save_last(compra_f: float, venta_f: float):
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    data = {
+        "compra": compra_f,
+        "venta": venta_f,
+        "ts_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def delta_line(today: float, prev: float) -> str:
+    diff = today - prev
+    pct = (diff / prev) * 100.0 if prev else 0.0
+    arrow = "🔺" if diff > 0 else ("🔻" if diff < 0 else "⏺")
+    sign = "+" if diff > 0 else ""
+    return f"{arrow} {sign}{diff:.2f} ({sign}{pct:.1f}%) vs última vez"
 
 
 def main():
-    session = requests.Session()
     try:
-        compra, venta = fetch_usd_rates(session)
+        compra_str, venta_str = fetch_usd_rates()
+        compra_f = parse_price_to_float(compra_str)
+        venta_f = parse_price_to_float(venta_str)
+
+        prev = load_last()
 
         tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
         ahora = datetime.now(timezone.utc).astimezone(tz_ar).strftime("%d/%m/%Y %H:%M")
 
-        mensaje = (
+        msg = (
             "💵 El Dorado – Dólar EE.UU\n"
-            f"Compra: {compra}\n"
-            f"Venta:  {venta}\n"
-            f"Hora bot: {ahora}\n"
-            "Fuente: https://eldoradosa.com/"
+            f"Compra: {compra_str.strip()}\n"
+            f"Venta:  {venta_str.strip()}\n"
+            "\n📈 Cambio (venta):\n"
         )
 
-        send_telegram(session, CHAT_ID, mensaje)
-        log("Message sent successfully.")
+        if prev and "venta" in prev:
+            msg += f"{delta_line(venta_f, float(prev['venta']))}\n"
+        else:
+            msg += "(sin dato previo)\n"
 
-    except Exception as exc:  # noqa: BLE001
-        log(f"ERROR: {exc}")
-        tb = traceback.format_exc()
+        msg += f"\nHora bot: {ahora}\nFuente: https://eldoradosa.com/"
 
-        # Try to alert admin (best-effort)
+        send_telegram(CHAT_ID, msg)
+        save_last(compra_f, venta_f)
+
+    except Exception as e:
+        err = f"❌ Dolar Bot falló:\n{type(e).__name__}: {e}"
         try:
-            alert = (
-                "🚨 dolar-bot falló\n"
-                f"Error: {exc}\n"
-                "\n"
-                "Traceback (resumido):\n"
-                + "\n".join(tb.splitlines()[-20:])
-            )
-            send_telegram(session, ADMIN_CHAT_ID, alert)
-            log("Admin alert sent.")
-        except Exception as exc2:  # noqa: BLE001
-            log(f"Couldn't send admin alert: {exc2}")
-
-        # Fail the workflow
+            send_telegram(ADMIN_CHAT_ID, err)
+        except Exception:
+            pass
         raise
 
 
 if __name__ == "__main__":
     main()
-    
