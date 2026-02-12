@@ -28,6 +28,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Restore bot state cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .bot_state
+          key: dolar-bot-state-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            dolar-bot-state-${{ runner.os }}-
+
+      # ... tus steps de setup python / pip install / run ...
+
+      - name: Save bot state cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .bot_state
+          key: dolar-bot-state-${{ runner.os }}-${{ github.run_id }}
+
       - name: Run bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
