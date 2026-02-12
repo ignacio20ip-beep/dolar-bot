@@ -2,21 +2,26 @@ name: Dolar Bot
 
 on:
   schedule:
-    - cron: '00 13 * * *'   # 13:00 UTC = 10:00 Argentina
+    - cron: '00 13 * * *'
   workflow_dispatch:
-
-concurrency:
-  group: dolar-bot
-  cancel-in-progress: true
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    concurrency:
+      group: dolar-bot
+      cancel-in-progress: false
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Cache bot state
+        uses: actions/cache@v4
+        with:
+          path: .bot_state
+          key: dolar-bot-state-${{ runner.os }}-${{ github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -28,28 +33,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Restore bot state cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .bot_state
-          key: dolar-bot-state-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: |
-            dolar-bot-state-${{ runner.os }}-
-
-      # ... tus steps de setup python / pip install / run ...
-
-      - name: Save bot state cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: .bot_state
-          key: dolar-bot-state-${{ runner.os }}-${{ github.run_id }}
-
       - name: Run bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-          # Optional: where error alerts go. If you don't set it, it uses CHAT_ID.
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
         run: |
           python dolar_bot.py
