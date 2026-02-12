@@ -11,12 +11,12 @@ from bs4 import BeautifulSoup
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", CHAT_ID)
+FORCE_SEND = os.getenv("FORCE_SEND", "false").lower() == "true"
 
 COTIZACIONES_BASE_URL = "https://eldoradosa.com/cotizaciones/CotizacionesWeb.htm"
 
 STATE_DIR = Path(".bot_state")
 STATE_FILE = STATE_DIR / "last_value.json"
-FORCE_SEND = os.getenv("FORCE_SEND", "false").lower() == "true"
 
 
 def parse_price_to_float(s: str) -> float:
@@ -133,14 +133,13 @@ def main():
 
         msg += f"\nHora bot: {ahora}\nFuente: https://eldoradosa.com/"
 
-                # Evitar doble envío el mismo día (hora Argentina)
-        if prev and "last_sent_date_ar" in prev:
+        # Evitar doble envío el mismo día (hora Argentina), salvo modo prueba
+        if not FORCE_SEND and prev and "last_sent_date_ar" in prev:
             tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
             hoy_ar = datetime.now(timezone.utc).astimezone(tz_ar).date().isoformat()
 
             if prev["last_sent_date_ar"] == hoy_ar:
-                # Ya se mandó hoy → salimos sin enviar nada
-                return
+               return
         
         send_telegram(CHAT_ID, msg)
         save_last(compra_f, venta_f)
@@ -156,4 +155,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
