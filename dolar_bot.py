@@ -16,6 +16,7 @@ COTIZACIONES_BASE_URL = "https://eldoradosa.com/cotizaciones/CotizacionesWeb.htm
 
 STATE_DIR = Path(".bot_state")
 STATE_FILE = STATE_DIR / "last_value.json"
+FORCE_SEND = os.getenv("FORCE_SEND", "false").lower() == "true"
 
 
 def parse_price_to_float(s: str) -> float:
@@ -84,13 +85,20 @@ def load_last():
 
 def save_last(compra_f: float, venta_f: float):
     STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+    tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
+    hoy_ar = datetime.now(timezone.utc).astimezone(tz_ar).date().isoformat()
+
     data = {
         "compra": compra_f,
         "venta": venta_f,
+        "last_sent_date_ar": hoy_ar,
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     }
-    STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
+    STATE_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 def delta_line(today: float, prev: float) -> str:
     diff = today - prev
@@ -125,6 +133,15 @@ def main():
 
         msg += f"\nHora bot: {ahora}\nFuente: https://eldoradosa.com/"
 
+                # Evitar doble envío el mismo día (hora Argentina)
+        if prev and "last_sent_date_ar" in prev:
+            tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
+            hoy_ar = datetime.now(timezone.utc).astimezone(tz_ar).date().isoformat()
+
+            if prev["last_sent_date_ar"] == hoy_ar:
+                # Ya se mandó hoy → salimos sin enviar nada
+                return
+        
         send_telegram(CHAT_ID, msg)
         save_last(compra_f, venta_f)
 
@@ -139,3 +156,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
