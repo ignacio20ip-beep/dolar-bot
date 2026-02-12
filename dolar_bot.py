@@ -119,10 +119,12 @@ def main():
         tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
         ahora = datetime.now(timezone.utc).astimezone(tz_ar).strftime("%d/%m/%Y %H:%M")
 
+        title = "🧪 [TEST] El Dorado – Dólar EE.UU" if FORCE_SEND else "💵 El Dorado – Dólar EE.UU"
+        
         msg = (
-            "💵 El Dorado – Dólar EE.UU\n"
-            f"Compra: {compra_str.strip()}\n"
-            f"Venta:  {venta_str.strip()}\n"
+            f"{title}\n"
+            f"Compra: {compra_str}\n"
+            f"Venta:  {venta_str}\n"
             "\n📈 Cambio (venta):\n"
         )
 
@@ -155,5 +157,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
