@@ -37,6 +37,7 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          TEST_CHAT_ID: ${{ secrets.TEST_CHAT_ID }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
           FORCE_SEND: "true"   # solo si estás probando
         run: |
