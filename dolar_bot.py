@@ -288,17 +288,25 @@ def delta_line(today: float, prev: float) -> str:
 
 def main():
     try:
+        # 0) Modo de ejecución
+        is_production_run = not FORCE_SEND
+
+        # 1) Scraping
         compra_str, venta_str = fetch_usd_rates()
         compra_f = parse_price_to_float(compra_str)
         venta_f = parse_price_to_float(venta_str)
 
+        # 2) Estado previo
         prev = load_last()
 
+        # 3) Hora AR
         tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
         ahora = datetime.now(timezone.utc).astimezone(tz_ar).strftime("%d/%m/%Y %H:%M")
+        hoy_ar = datetime.now(timezone.utc).astimezone(tz_ar).date().isoformat()
 
+        # 4) Armar mensaje principal
         title = "🧪 [TEST] El Dorado – Dólar EE.UU" if FORCE_SEND else "💵 El Dorado – Dólar EE.UU"
-        
+
         msg = (
             f"{title}\n"
             f"Compra: {compra_str}\n"
@@ -313,21 +321,27 @@ def main():
 
         msg += f"\nHora bot: {ahora}\nFuente: https://eldoradosa.com/"
 
-        # Evitar doble envío el mismo día (hora Argentina), salvo modo prueba
-        if not FORCE_SEND and prev and "last_sent_date_ar" in prev:
-            tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
-            hoy_ar = datetime.now(timezone.utc).astimezone(tz_ar).date().isoformat()
-
+        # 5) Anti-spam diario (solo producción)
+        if is_production_run and prev and "last_sent_date_ar" in prev:
             if prev["last_sent_date_ar"] == hoy_ar:
-               return
+                return
 
+        # 6) Elegir chat destino
         DEST_CHAT_ID = CHAT_ID
         if FORCE_SEND:
-           DEST_CHAT_ID = TEST_CHAT_ID or CHAT_ID
-        if is_production_run and (not is_weekend_ar()):
-            date_ar = today_ar_iso()
-            append_history_once_per_day(date_ar, compra_f, venta_f)
+            DEST_CHAT_ID = TEST_CHAT_ID or CHAT_ID
 
+        # 7) Enviar mensaje principal
+        send_telegram(DEST_CHAT_ID, msg)
+
+        # 8) Guardar "último valor enviado" (sirve para Δ diario y anti-spam)
+        save_last(compra_f, venta_f)
+
+        # 9) Guardar histórico (solo producción y no fines de semana)
+        if is_production_run and (not is_weekend_ar()):
+            append_history_once_per_day(hoy_ar, compra_f, venta_f)
+
+        # 10) Resúmenes (solo producción, después del mensaje principal)
         if is_production_run:
             w = weekly_summary_message(today_venta=venta_f)
             if w:
@@ -336,9 +350,6 @@ def main():
             m = monthly_summary_message()
             if m:
                 send_telegram(CHAT_ID, m)
-
-        send_telegram(DEST_CHAT_ID, msg)
-        save_last(compra_f, venta_f)
 
     except Exception as e:
         err = f"❌ Dolar Bot falló:\n{type(e).__name__}: {e}"
@@ -349,8 +360,6 @@ def main():
         raise
 
 
-if __name__ == "__main__":
-    main()
 
 
 
