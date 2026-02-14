@@ -44,6 +44,6 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           TEST_CHAT_ID: ${{ secrets.TEST_CHAT_ID }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
-          FORCE_SEND: ${{ github.event.inputs.force_send }}
+          FORCE_SEND: ${{ github.event.inputs.force_send || 'false' }}
         run: |
           python dolar_bot.py
