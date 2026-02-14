@@ -2,7 +2,7 @@ name: Dolar Bot
 
 on:
   schedule:
-    - cron: '00 13 * * 1-5'
+    - cron: "00 13 * * 1-5" # Lun-Vie 13:00 UTC = 10:00 AR aprox (según DST)
   workflow_dispatch:
     inputs:
       force_send:
@@ -26,7 +26,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .bot_state
-          key: dolar-bot-state-${{ runner.os }}-${{ github.ref_name }}
+          key: dolar-bot-state-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            dolar-bot-state-${{ runner.os }}-${{ github.ref_name }}-
 
       - name: Set up Python
         uses: actions/setup-python@v5
