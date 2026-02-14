@@ -2,7 +2,7 @@ name: Dolar Bot
 
 on:
   schedule:
-    - cron: '00 13 * * *'
+    - cron: '00 13 * * 1-5'
   workflow_dispatch:
     inputs:
       force_send:
