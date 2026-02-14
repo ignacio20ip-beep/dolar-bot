@@ -18,7 +18,7 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip() or CHAT_ID
 FORCE_SEND = os.getenv("FORCE_SEND", "false").lower() == "true"
 
 # ===== URLs / State =====
-COTIZACIONES_BASE_URL = "https://eldoradosa.com/cotizaciones/CotizacionesWeb.htm"
+COTIZACIONES_BASE_URL = "https://eldoradosa.com/cotizaciones/CotizacionesWebXX.htm"
 
 STATE_DIR = Path(".bot_state")
 STATE_FILE = STATE_DIR / "last_value.json"
@@ -360,3 +360,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
