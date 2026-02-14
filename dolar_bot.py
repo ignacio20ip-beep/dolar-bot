@@ -13,6 +13,8 @@ CHAT_ID = os.environ["CHAT_ID"]
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", CHAT_ID)
 TEST_CHAT_ID = os.getenv("TEST_CHAT_ID")
 FORCE_SEND = os.getenv("FORCE_SEND", "false").lower() == "true"
+is_production_run = not FORCE_SEND
+
 
 COTIZACIONES_BASE_URL = "https://eldoradosa.com/cotizaciones/CotizacionesWeb.htm"
 
@@ -349,6 +351,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
