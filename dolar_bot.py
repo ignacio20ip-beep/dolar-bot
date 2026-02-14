@@ -8,19 +8,21 @@ from zoneinfo import ZoneInfo
 import requests
 from bs4 import BeautifulSoup
 
+
+# ===== Env =====
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
+TEST_CHAT_ID = os.getenv("TEST_CHAT_ID", "").strip() or None
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", CHAT_ID)
-TEST_CHAT_ID = os.getenv("TEST_CHAT_ID")
+
 FORCE_SEND = os.getenv("FORCE_SEND", "false").lower() == "true"
 
-
+# ===== URLs / State =====
 COTIZACIONES_BASE_URL = "https://eldoradosa.com/cotizaciones/CotizacionesWeb.htm"
 
 STATE_DIR = Path(".bot_state")
 STATE_FILE = STATE_DIR / "last_value.json"
 HISTORY_FILE = STATE_DIR / "history.csv"
-
 
 
 def parse_price_to_float(s: str) -> float:
@@ -87,22 +89,16 @@ def load_last():
     return json.loads(STATE_FILE.read_text(encoding="utf-8"))
 
 
-def save_last(compra_f: float, venta_f: float):
+def save_last(compra_f: float, venta_f: float, hoy_ar: str):
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-
-    tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
-    hoy_ar = datetime.now(timezone.utc).astimezone(tz_ar).date().isoformat()
-
     data = {
         "compra": compra_f,
         "venta": venta_f,
         "last_sent_date_ar": hoy_ar,
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     }
-    STATE_FILE.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
 
 def is_weekend_ar() -> bool:
     tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
@@ -126,7 +122,7 @@ def append_history_once_per_day(date_ar: str, compra_f: float, venta_f: float) -
         HISTORY_FILE.write_text("date_ar,compra,venta\n", encoding="utf-8")
 
     lines = HISTORY_FILE.read_text(encoding="utf-8").splitlines()
-    # Si ya existe fecha, no agregamos
+
     for line in lines[1:]:
         if line.startswith(date_ar + ","):
             return False
@@ -137,9 +133,6 @@ def append_history_once_per_day(date_ar: str, compra_f: float, venta_f: float) -
 
 
 def read_history_rows():
-    """
-    Devuelve lista de dicts: [{"date_ar": "YYYY-MM-DD", "compra": float, "venta": float}, ...]
-    """
     if not HISTORY_FILE.exists():
         return []
     rows = []
@@ -152,7 +145,6 @@ def read_history_rows():
 
 
 def day_name_es(date_iso: str) -> str:
-    # date_iso: YYYY-MM-DD
     d = datetime.fromisoformat(date_iso).date()
     names = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
     return names[d.weekday()]
@@ -160,28 +152,36 @@ def day_name_es(date_iso: str) -> str:
 
 def month_name_es(month: int) -> str:
     names = [
-        "Enero","Febrero","Marzo","Abril","Mayo","Junio",
-        "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
     ]
     return names[month - 1]
 
+
+def arrow_for(diff: float) -> str:
+    return "🔺" if diff > 0 else ("🔻" if diff < 0 else "⏺")
+
+
+def delta_line(today: float, prev: float) -> str:
+    diff = today - prev
+    pct = (diff / prev) * 100.0 if prev else 0.0
+    sign = "+" if diff > 0 else ""
+    return f"{arrow_for(diff)} {sign}{diff:.2f} ({sign}{pct:.1f}%) vs última vez"
+
+
 def weekly_summary_message(today_venta: float) -> str | None:
-    """
-    Resumen semanal: se manda los viernes (hora AR), usando los últimos registros de la semana.
-    Si no hay suficientes datos, devuelve None.
-    """
     tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
     now_ar = datetime.now(timezone.utc).astimezone(tz_ar)
-    if now_ar.weekday() != 4:  # 4 = Viernes
+
+    # Viernes
+    if now_ar.weekday() != 4:
         return None
 
     rows = read_history_rows()
     if len(rows) < 2:
         return None
 
-    # Tomamos últimos 5 registros (idealmente hábiles)
     last = rows[-5:] if len(rows) >= 5 else rows[:]
-
     ventas = [r["venta"] for r in last]
     dates = [r["date_ar"] for r in last]
 
@@ -190,11 +190,10 @@ def weekly_summary_message(today_venta: float) -> str | None:
     diff = last_v - first
     pct = (diff / first) * 100 if first else 0.0
     sign = "+" if diff > 0 else ""
-    arrow = "🔺" if diff > 0 else ("🔻" if diff < 0 else "⏺")
+    arr = arrow_for(diff)
 
     min_idx = ventas.index(min(ventas))
     max_idx = ventas.index(max(ventas))
-
     vmin, dmin = ventas[min_idx], dates[min_idx]
     vmax, dmax = ventas[max_idx], dates[max_idx]
     prom = sum(ventas) / len(ventas)
@@ -203,7 +202,7 @@ def weekly_summary_message(today_venta: float) -> str | None:
     return (
         "📊 Semana (Venta)\n"
         f"Hoy: {today_venta:.2f}\n"
-        f"Δ semanal: {arrow} {sign}{diff:.2f} ({sign}{pct:.1f}%)\n\n"
+        f"Δ semanal: {arr} {sign}{diff:.2f} ({sign}{pct:.1f}%)\n\n"
         f"Min: {vmin:.2f} ({day_name_es(dmin)})\n"
         f"Max: {vmax:.2f} ({day_name_es(dmax)})\n"
         f"Prom: {prom:.2f}\n"
@@ -212,15 +211,13 @@ def weekly_summary_message(today_venta: float) -> str | None:
 
 
 def monthly_summary_message() -> str | None:
-    """
-    Resumen mensual (mes calendario anterior): se manda el día 1 (hora AR).
-    """
     tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
     now_ar = datetime.now(timezone.utc).astimezone(tz_ar)
+
+    # Día 1
     if now_ar.day != 1:
         return None
 
-    # Mes anterior
     year = now_ar.year
     month = now_ar.month - 1
     if month == 0:
@@ -231,7 +228,6 @@ def monthly_summary_message() -> str | None:
     if not rows:
         return None
 
-    # Filtrar filas del mes calendario anterior (por date_ar)
     prefix = f"{year:04d}-{month:02d}-"
     month_rows = [r for r in rows if r["date_ar"].startswith(prefix)]
     if len(month_rows) < 2:
@@ -245,22 +241,20 @@ def monthly_summary_message() -> str | None:
     diff = last_v - first
     pct = (diff / first) * 100 if first else 0.0
     sign = "+" if diff > 0 else ""
-    arrow = "🔺" if diff > 0 else ("🔻" if diff < 0 else "⏺")
+    arr = arrow_for(diff)
 
     min_idx = ventas.index(min(ventas))
     max_idx = ventas.index(max(ventas))
     vmin, dmin = ventas[min_idx], dates[min_idx]
     vmax, dmax = ventas[max_idx], dates[max_idx]
-
     prom = sum(ventas) / len(ventas)
     rango = vmax - vmin
 
-    # Conteo de días sube/baja/igual (comparando con día previo dentro del mes)
     up = down = flat = 0
     for i in range(1, len(ventas)):
-        if ventas[i] > ventas[i-1]:
+        if ventas[i] > ventas[i - 1]:
             up += 1
-        elif ventas[i] < ventas[i-1]:
+        elif ventas[i] < ventas[i - 1]:
             down += 1
         else:
             flat += 1
@@ -268,7 +262,7 @@ def monthly_summary_message() -> str | None:
     return (
         f"🗓️ {month_name_es(month)} {year} (Venta)\n"
         f"Cierre: {last_v:.2f}\n"
-        f"Δ mensual: {arrow} {sign}{diff:.2f} ({sign}{pct:.1f}%)\n\n"
+        f"Δ mensual: {arr} {sign}{diff:.2f} ({sign}{pct:.1f}%)\n\n"
         f"Min: {vmin:.2f} ({dmin[8:10]}/{dmin[5:7]})\n"
         f"Max: {vmax:.2f} ({dmax[8:10]}/{dmax[5:7]})\n"
         f"Prom: {prom:.2f}\n"
@@ -277,38 +271,27 @@ def monthly_summary_message() -> str | None:
     )
 
 
-def delta_line(today: float, prev: float) -> str:
-    diff = today - prev
-    pct = (diff / prev) * 100.0 if prev else 0.0
-    arrow = "🔺" if diff > 0 else ("🔻" if diff < 0 else "⏺")
-    sign = "+" if diff > 0 else ""
-    return f"{arrow} {sign}{diff:.2f} ({sign}{pct:.1f}%) vs última vez"
-
-
 def main():
     try:
-        # 0) Modo de ejecución
         is_production_run = not FORCE_SEND
-        print(f"FORCE_SEND={FORCE_SEND}  is_production_run={is_production_run}")
-        print(f"CHAT_ID={CHAT_ID}  TEST_CHAT_ID={TEST_CHAT_ID}")
-
-
-        # 1) Scraping
-        compra_str, venta_str = fetch_usd_rates()
-        compra_f = parse_price_to_float(compra_str)
-        venta_f = parse_price_to_float(venta_str)
-
-        # 2) Estado previo
-        prev = load_last()
-
-        # 3) Hora AR
         tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
         ahora = datetime.now(timezone.utc).astimezone(tz_ar).strftime("%d/%m/%Y %H:%M")
         hoy_ar = datetime.now(timezone.utc).astimezone(tz_ar).date().isoformat()
 
-        # 4) Armar mensaje principal
-        title = "🧪 [TEST] El Dorado – Dólar EE.UU" if FORCE_SEND else "💵 El Dorado – Dólar EE.UU"
+        # Logs mínimos para depurar sin volverte loco
+        print(f"FORCE_SEND={FORCE_SEND} is_production_run={is_production_run}")
+        print(f"CHAT_ID={CHAT_ID} TEST_CHAT_ID={TEST_CHAT_ID}")
 
+        if FORCE_SEND and not TEST_CHAT_ID:
+            raise ValueError("FORCE_SEND=true pero TEST_CHAT_ID no está seteado.")
+
+        compra_str, venta_str = fetch_usd_rates()
+        compra_f = parse_price_to_float(compra_str)
+        venta_f = parse_price_to_float(venta_str)
+
+        prev = load_last()
+
+        title = "🧪 [TEST] El Dorado – Dólar EE.UU" if FORCE_SEND else "💵 El Dorado – Dólar EE.UU"
         msg = (
             f"{title}\n"
             f"Compra: {compra_str}\n"
@@ -323,28 +306,26 @@ def main():
 
         msg += f"\nHora bot: {ahora}\nFuente: https://eldoradosa.com/"
 
-        # 5) Anti-spam diario (solo producción)
+        # Anti-spam diario solo en producción
         if is_production_run and prev and "last_sent_date_ar" in prev:
             if prev["last_sent_date_ar"] == hoy_ar:
                 print(f"Skip: already sent today (AR) = {hoy_ar}")
                 return
 
-        # 6) Elegir chat destino
-        DEST_CHAT_ID = CHAT_ID
+        dest_chat_id = CHAT_ID
         if FORCE_SEND:
-            DEST_CHAT_ID = TEST_CHAT_ID or CHAT_ID
+            dest_chat_id = TEST_CHAT_ID
 
-        # 7) Enviar mensaje principal
-        send_telegram(DEST_CHAT_ID, msg)
+        print(f"Sending to chat_id={dest_chat_id}")
+        send_telegram(dest_chat_id, msg)
 
-        # 8) Guardar "último valor enviado" (sirve para Δ diario y anti-spam)
-        save_last(compra_f, venta_f)
+        # Guardar último valor SIEMPRE (incluye test: te sirve para delta en test)
+        save_last(compra_f, venta_f, hoy_ar)
 
-        # 9) Guardar histórico (solo producción y no fines de semana)
+        # Histórico y resúmenes solo prod y no finde
         if is_production_run and (not is_weekend_ar()):
             append_history_once_per_day(hoy_ar, compra_f, venta_f)
 
-        # 10) Resúmenes (solo producción, después del mensaje principal)
         if is_production_run:
             w = weekly_summary_message(today_venta=venta_f)
             if w:
@@ -363,14 +344,5 @@ def main():
         raise
 
 
-
-
-
-
-
-
-
-
-
-
-
+if __name__ == "__main__":
+    main()
