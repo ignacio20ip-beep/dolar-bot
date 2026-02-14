@@ -18,6 +18,8 @@ COTIZACIONES_BASE_URL = "https://eldoradosa.com/cotizaciones/CotizacionesWeb.htm
 
 STATE_DIR = Path(".bot_state")
 STATE_FILE = STATE_DIR / "last_value.json"
+HISTORY_FILE = STATE_DIR / "history.csv"
+
 
 
 def parse_price_to_float(s: str) -> float:
@@ -162,6 +164,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
