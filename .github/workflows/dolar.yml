@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '00 13 * * *'
   workflow_dispatch:
+    inputs:
+      force_send:
+        description: "Modo prueba (envía a chat TEST)"
+        required: false
+        default: "false"
 
 jobs:
   run-bot:
@@ -39,6 +44,6 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           TEST_CHAT_ID: ${{ secrets.TEST_CHAT_ID }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
-          FORCE_SEND: "false"   # solo si estás probando
+          FORCE_SEND: ${{ github.event.inputs.force_send }}
         run: |
           python dolar_bot.py
