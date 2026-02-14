@@ -103,6 +103,179 @@ def save_last(compra_f: float, venta_f: float):
         encoding="utf-8",
     )
 
+def is_weekend_ar() -> bool:
+    tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
+    dow = datetime.now(timezone.utc).astimezone(tz_ar).weekday()  # 0=Lun ... 6=Dom
+    return dow >= 5
+
+
+def today_ar_iso() -> str:
+    tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
+    return datetime.now(timezone.utc).astimezone(tz_ar).date().isoformat()
+
+
+def append_history_once_per_day(date_ar: str, compra_f: float, venta_f: float) -> bool:
+    """
+    Guarda una fila por día (si ya existe ese date_ar, no duplica).
+    Devuelve True si escribió, False si ya existía.
+    """
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+    if not HISTORY_FILE.exists():
+        HISTORY_FILE.write_text("date_ar,compra,venta\n", encoding="utf-8")
+
+    lines = HISTORY_FILE.read_text(encoding="utf-8").splitlines()
+    # Si ya existe fecha, no agregamos
+    for line in lines[1:]:
+        if line.startswith(date_ar + ","):
+            return False
+
+    with HISTORY_FILE.open("a", encoding="utf-8") as f:
+        f.write(f"{date_ar},{compra_f:.2f},{venta_f:.2f}\n")
+    return True
+
+
+def read_history_rows():
+    """
+    Devuelve lista de dicts: [{"date_ar": "YYYY-MM-DD", "compra": float, "venta": float}, ...]
+    """
+    if not HISTORY_FILE.exists():
+        return []
+    rows = []
+    for i, line in enumerate(HISTORY_FILE.read_text(encoding="utf-8").splitlines()):
+        if i == 0 or not line.strip():
+            continue
+        date_ar, compra, venta = line.split(",")
+        rows.append({"date_ar": date_ar, "compra": float(compra), "venta": float(venta)})
+    return rows
+
+
+def day_name_es(date_iso: str) -> str:
+    # date_iso: YYYY-MM-DD
+    d = datetime.fromisoformat(date_iso).date()
+    names = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+    return names[d.weekday()]
+
+
+def month_name_es(month: int) -> str:
+    names = [
+        "Enero","Febrero","Marzo","Abril","Mayo","Junio",
+        "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"
+    ]
+    return names[month - 1]
+
+def weekly_summary_message(today_venta: float) -> str | None:
+    """
+    Resumen semanal: se manda los viernes (hora AR), usando los últimos registros de la semana.
+    Si no hay suficientes datos, devuelve None.
+    """
+    tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
+    now_ar = datetime.now(timezone.utc).astimezone(tz_ar)
+    if now_ar.weekday() != 4:  # 4 = Viernes
+        return None
+
+    rows = read_history_rows()
+    if len(rows) < 2:
+        return None
+
+    # Tomamos últimos 5 registros (idealmente hábiles)
+    last = rows[-5:] if len(rows) >= 5 else rows[:]
+
+    ventas = [r["venta"] for r in last]
+    dates = [r["date_ar"] for r in last]
+
+    first = ventas[0]
+    last_v = ventas[-1]
+    diff = last_v - first
+    pct = (diff / first) * 100 if first else 0.0
+    sign = "+" if diff > 0 else ""
+    arrow = "🔺" if diff > 0 else ("🔻" if diff < 0 else "⏺")
+
+    min_idx = ventas.index(min(ventas))
+    max_idx = ventas.index(max(ventas))
+
+    vmin, dmin = ventas[min_idx], dates[min_idx]
+    vmax, dmax = ventas[max_idx], dates[max_idx]
+    prom = sum(ventas) / len(ventas)
+    rango = vmax - vmin
+
+    return (
+        "📊 Semana (Venta)\n"
+        f"Hoy: {today_venta:.2f}\n"
+        f"Δ semanal: {arrow} {sign}{diff:.2f} ({sign}{pct:.1f}%)\n\n"
+        f"Min: {vmin:.2f} ({day_name_es(dmin)})\n"
+        f"Max: {vmax:.2f} ({day_name_es(dmax)})\n"
+        f"Prom: {prom:.2f}\n"
+        f"Rango: {rango:.2f}"
+    )
+
+
+def monthly_summary_message() -> str | None:
+    """
+    Resumen mensual (mes calendario anterior): se manda el día 1 (hora AR).
+    """
+    tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
+    now_ar = datetime.now(timezone.utc).astimezone(tz_ar)
+    if now_ar.day != 1:
+        return None
+
+    # Mes anterior
+    year = now_ar.year
+    month = now_ar.month - 1
+    if month == 0:
+        month = 12
+        year -= 1
+
+    rows = read_history_rows()
+    if not rows:
+        return None
+
+    # Filtrar filas del mes calendario anterior (por date_ar)
+    prefix = f"{year:04d}-{month:02d}-"
+    month_rows = [r for r in rows if r["date_ar"].startswith(prefix)]
+    if len(month_rows) < 2:
+        return None
+
+    ventas = [r["venta"] for r in month_rows]
+    dates = [r["date_ar"] for r in month_rows]
+
+    first = ventas[0]
+    last_v = ventas[-1]
+    diff = last_v - first
+    pct = (diff / first) * 100 if first else 0.0
+    sign = "+" if diff > 0 else ""
+    arrow = "🔺" if diff > 0 else ("🔻" if diff < 0 else "⏺")
+
+    min_idx = ventas.index(min(ventas))
+    max_idx = ventas.index(max(ventas))
+    vmin, dmin = ventas[min_idx], dates[min_idx]
+    vmax, dmax = ventas[max_idx], dates[max_idx]
+
+    prom = sum(ventas) / len(ventas)
+    rango = vmax - vmin
+
+    # Conteo de días sube/baja/igual (comparando con día previo dentro del mes)
+    up = down = flat = 0
+    for i in range(1, len(ventas)):
+        if ventas[i] > ventas[i-1]:
+            up += 1
+        elif ventas[i] < ventas[i-1]:
+            down += 1
+        else:
+            flat += 1
+
+    return (
+        f"🗓️ {month_name_es(month)} {year} (Venta)\n"
+        f"Cierre: {last_v:.2f}\n"
+        f"Δ mensual: {arrow} {sign}{diff:.2f} ({sign}{pct:.1f}%)\n\n"
+        f"Min: {vmin:.2f} ({dmin[8:10]}/{dmin[5:7]})\n"
+        f"Max: {vmax:.2f} ({dmax[8:10]}/{dmax[5:7]})\n"
+        f"Prom: {prom:.2f}\n"
+        f"Días: 🔺{up} / 🔻{down} / ⏺{flat}\n"
+        f"Rango: {rango:.2f}"
+    )
+
+
 def delta_line(today: float, prev: float) -> str:
     diff = today - prev
     pct = (diff / prev) * 100.0 if prev else 0.0
@@ -164,6 +337,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
