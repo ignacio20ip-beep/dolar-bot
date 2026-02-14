@@ -12,7 +12,7 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", CHAT_ID)
 TEST_CHAT_ID = os.getenv("TEST_CHAT_ID")
-FORCE_SEND = os.getenv("FORCE_SEND", "false").lower() == "true"
+FORCE_SEND: ${{ github.event.inputs.force_send || 'false' }}
 
 
 COTIZACIONES_BASE_URL = "https://eldoradosa.com/cotizaciones/CotizacionesWeb.htm"
@@ -289,6 +289,9 @@ def main():
     try:
         # 0) Modo de ejecución
         is_production_run = not FORCE_SEND
+        print(f"FORCE_SEND={FORCE_SEND}  is_production_run={is_production_run}")
+        print(f"CHAT_ID={CHAT_ID}  TEST_CHAT_ID={TEST_CHAT_ID}")
+
 
         # 1) Scraping
         compra_str, venta_str = fetch_usd_rates()
@@ -323,6 +326,7 @@ def main():
         # 5) Anti-spam diario (solo producción)
         if is_production_run and prev and "last_sent_date_ar" in prev:
             if prev["last_sent_date_ar"] == hoy_ar:
+                print(f"Skip: already sent today (AR) = {hoy_ar}")
                 return
 
         # 6) Elegir chat destino
@@ -357,6 +361,7 @@ def main():
         except Exception:
             pass
         raise
+
 
 
 
