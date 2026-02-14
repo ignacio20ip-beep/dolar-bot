@@ -13,7 +13,7 @@ from bs4 import BeautifulSoup
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 TEST_CHAT_ID = os.getenv("TEST_CHAT_ID", "").strip() or None
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", CHAT_ID)
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip() or CHAT_ID
 
 FORCE_SEND = os.getenv("FORCE_SEND", "false").lower() == "true"
 
@@ -23,6 +23,20 @@ COTIZACIONES_BASE_URL = "https://eldoradosa.com/cotizaciones/CotizacionesWeb.htm
 STATE_DIR = Path(".bot_state")
 STATE_FILE = STATE_DIR / "last_value.json"
 HISTORY_FILE = STATE_DIR / "history.csv"
+
+
+def notify_debug(msg: str) -> None:
+    """
+    Envía avisos al chat de prueba si existe, sino al admin.
+    Nunca al chat de producción.
+    """
+    dest = TEST_CHAT_ID or ADMIN_CHAT_ID
+    if not dest:
+        return
+    try:
+        send_telegram(dest, msg)
+    except Exception:
+        pass
 
 
 def parse_price_to_float(s: str) -> float:
@@ -173,8 +187,7 @@ def weekly_summary_message(today_venta: float) -> str | None:
     tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
     now_ar = datetime.now(timezone.utc).astimezone(tz_ar)
 
-    # Viernes
-    if now_ar.weekday() != 4:
+    if now_ar.weekday() != 4:  # Viernes
         return None
 
     rows = read_history_rows()
@@ -214,7 +227,6 @@ def monthly_summary_message() -> str | None:
     tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
     now_ar = datetime.now(timezone.utc).astimezone(tz_ar)
 
-    # Día 1
     if now_ar.day != 1:
         return None
 
@@ -278,11 +290,12 @@ def main():
         ahora = datetime.now(timezone.utc).astimezone(tz_ar).strftime("%d/%m/%Y %H:%M")
         hoy_ar = datetime.now(timezone.utc).astimezone(tz_ar).date().isoformat()
 
-        # Logs mínimos para depurar sin volverte loco
+        # Logs mínimos para debug
         print(f"FORCE_SEND={FORCE_SEND} is_production_run={is_production_run}")
-        print(f"CHAT_ID={CHAT_ID} TEST_CHAT_ID={TEST_CHAT_ID}")
+        print(f"CHAT_ID={CHAT_ID} TEST_CHAT_ID={TEST_CHAT_ID} ADMIN_CHAT_ID={ADMIN_CHAT_ID}")
 
         if FORCE_SEND and not TEST_CHAT_ID:
+            notify_debug("❌ FORCE_SEND=true pero TEST_CHAT_ID no está seteado. No puedo enviar test.")
             raise ValueError("FORCE_SEND=true pero TEST_CHAT_ID no está seteado.")
 
         compra_str, venta_str = fetch_usd_rates()
@@ -309,20 +322,20 @@ def main():
         # Anti-spam diario solo en producción
         if is_production_run and prev and "last_sent_date_ar" in prev:
             if prev["last_sent_date_ar"] == hoy_ar:
-                print(f"Skip: already sent today (AR) = {hoy_ar}")
+                reason = f"🧯 Producción NO enviada: ya se envió hoy (AR={hoy_ar}). Anti-spam activado."
+                print(reason)
+                notify_debug(reason)
                 return
 
-        dest_chat_id = CHAT_ID
-        if FORCE_SEND:
-            dest_chat_id = TEST_CHAT_ID
-
+        dest_chat_id = CHAT_ID if is_production_run else TEST_CHAT_ID
         print(f"Sending to chat_id={dest_chat_id}")
+
         send_telegram(dest_chat_id, msg)
 
-        # Guardar último valor SIEMPRE (incluye test: te sirve para delta en test)
+        # Guardar último valor siempre (sirve para delta en test también)
         save_last(compra_f, venta_f, hoy_ar)
 
-        # Histórico y resúmenes solo prod y no finde
+        # Histórico + resúmenes solo producción y no finde
         if is_production_run and (not is_weekend_ar()):
             append_history_once_per_day(hoy_ar, compra_f, venta_f)
 
@@ -341,6 +354,7 @@ def main():
             send_telegram(ADMIN_CHAT_ID, err)
         except Exception:
             pass
+        notify_debug(err)
         raise
 
 
