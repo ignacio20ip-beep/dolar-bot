@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", CHAT_ID)
+TEST_CHAT_ID = os.getenv("TEST_CHAT_ID")
 FORCE_SEND = os.getenv("FORCE_SEND", "false").lower() == "true"
 
 COTIZACIONES_BASE_URL = "https://eldoradosa.com/cotizaciones/CotizacionesWeb.htm"
@@ -142,8 +143,12 @@ def main():
 
             if prev["last_sent_date_ar"] == hoy_ar:
                return
-        
-        send_telegram(CHAT_ID, msg)
+
+        DEST_CHAT_ID = CHAT_ID
+        if FORCE_SEND:
+           DEST_CHAT_ID = TEST_CHAT_ID or CHAT_ID
+
+        send_telegram(DEST_CHAT_ID, msg)
         save_last(compra_f, venta_f)
 
     except Exception as e:
@@ -157,6 +162,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
