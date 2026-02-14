@@ -322,6 +322,18 @@ def main():
         DEST_CHAT_ID = CHAT_ID
         if FORCE_SEND:
            DEST_CHAT_ID = TEST_CHAT_ID or CHAT_ID
+        if is_production_run and (not is_weekend_ar()):
+            date_ar = today_ar_iso()
+            append_history_once_per_day(date_ar, compra_f, venta_f)
+
+        if is_production_run:
+            w = weekly_summary_message(today_venta=venta_f)
+            if w:
+                send_telegram(CHAT_ID, w)
+
+            m = monthly_summary_message()
+            if m:
+                send_telegram(CHAT_ID, m)
 
         send_telegram(DEST_CHAT_ID, msg)
         save_last(compra_f, venta_f)
@@ -337,6 +349,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
